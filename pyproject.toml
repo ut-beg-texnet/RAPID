@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rapid-seis"
-version = "1.0.2"
+version = "1.0.3"
 description = "RAPID: real-time deep-learning seismic phase picking with Slipstream inference and Model-Actor / Ripper orchestration"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -46,9 +46,9 @@ dependencies = [
 orchestration = ["ray>=2.40"]
 
 [project.urls]
-Homepage = "https://github.com/Costaki33/RAPID"
-Repository = "https://github.com/Costaki33/RAPID"
-Issues = "https://github.com/Costaki33/RAPID/issues"
+Homepage = "https://github.com/ut-beg-texnet/RAPID"
+Repository = "https://github.com/ut-beg-texnet/RAPID"
+Issues = "https://github.com/ut-beg-texnet/RAPID/issues"
 
 [tool.setuptools.packages.find]
 include = ["rapid*"]
