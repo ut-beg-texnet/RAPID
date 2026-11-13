@@ -992,9 +992,12 @@ def _mseed_scan_physical_records_numpy(bfr_np):
             chunk = bfr_np[scan : scan + 8192]
             if chunk.size < 48:
                 break
-            ret = clibmseed.msr_parse(
-                chunk, int(chunk.size), C.pointer(msr), -1, 0, 0
-            )
+            try:
+                ret = clibmseed.msr_parse(
+                    chunk, int(chunk.size), C.pointer(msr), -1, 0, 0
+                )
+            except Exception:
+                ret = -1
             if ret == MS_NOERROR:
                 offset = scan
                 lead_ok = True
@@ -1006,9 +1009,12 @@ def _mseed_scan_physical_records_numpy(bfr_np):
             chunk = bfr_np[offset : offset + 8192]
             if chunk.size < 48:
                 break
-            ret = clibmseed.msr_parse(
-                chunk, int(chunk.size), C.pointer(msr), -1, 0, 0
-            )
+            try:
+                ret = clibmseed.msr_parse(
+                    chunk, int(chunk.size), C.pointer(msr), -1, 0, 0
+                )
+            except Exception:
+                ret = -1
             if ret != MS_NOERROR:
                 consec_bad += 1
                 if consec_bad <= 256:
@@ -1362,7 +1368,16 @@ def _read_mseed_best_effort(
         except Exception:
             pass
     if len(out) == 0:
-        rec = _read_mseed_longest_prefix_recovery(path)
+        try:
+            rec = _read_mseed_longest_prefix_recovery(path)
+        except Exception as e:
+            rec = obspy.Stream()
+            if logw:
+                logw(
+                    "miniSEED prefix recovery failed for %s; skipping this file: %s",
+                    os.path.basename(path),
+                    e,
+                )
         if len(rec) > 0:
             out = rec
             recovery_events.append("whole_file_longest_prefix")
@@ -1438,24 +1453,85 @@ def read_station_waveform_file(
     return st
 
 
+# Filling every sample between the first and last time (ObsPy merge method 1)
+# allocates a multi-day outage as zeros. method 0 avoids that allocation but
+# still concatenates one segment at a time, which copies the growing array
+# once per segment and stalls on a month file made of many pieces.
+_PRELOAD_MAX_GAP_S = 300.0
+_PRELOAD_MAX_TRACE_BYTES = 4 * 1024 * 1024 * 1024
+
+
+def _preload_concat_cluster(cluster):
+    """Join one close cluster into a single trace. Gaps inside the cluster are short."""
+    import numpy as np
+
+    if len(cluster) == 1:
+        return cluster[0]
+    ref = cluster[0]
+    sr = float(ref.stats.sampling_rate)
+    if sr <= 0:
+        return ref
+    t0 = min(tr.stats.starttime for tr in cluster)
+    t1 = max(tr.stats.endtime for tr in cluster)
+    npts = int(round(float(t1 - t0) * sr)) + 1
+    if npts <= 0:
+        return ref
+    out = np.zeros(npts, dtype=np.asarray(ref.data).dtype)
+    for tr in cluster:
+        if abs(float(tr.stats.sampling_rate) - sr) > 1e-3:
+            continue
+        data = np.asarray(tr.data)
+        if data.size == 0:
+            continue
+        i0 = int(round(float(tr.stats.starttime - t0) * sr))
+        if i0 >= npts:
+            continue
+        if i0 < 0:
+            data = data[-i0:]
+            i0 = 0
+        i1 = min(npts, i0 + int(data.size))
+        if i1 > i0:
+            out[i0:i1] = data[: i1 - i0]
+    merged = ref.copy()
+    merged.data = out
+    merged.stats.starttime = t0
+    return merged
+
+
 def merge_mseed_stream_after_read(temp_st) -> None:
     """
-    Merge gaps/overlaps after reading one miniSEED file into *temp_st* (in place).
+    Merge overlaps after reading one miniSEED file into *temp_st* (in place).
 
-    Prefer ``merge(method=1, fill_value=0)``; on failure (common with marginal Steim
-    overlaps), fall back to ``merge(fill_value=0)``. Used by the driver preload,
-    EQCCT numpy path, and :func:`~rapid.orchestration.models.seisbench_models.mseed2stream_3c`.
+    Segments more than five minutes apart are split, and only the largest
+    cluster of each channel is kept. That cluster is copied once into a
+    preallocated array. ObsPy ``Stream.merge`` is not used: method 1 fills
+    outages with zeros, and method 0 recopies the array for every segment.
     """
     try:
-        temp_st.merge(method=1, fill_value=0)
+        if temp_st is None or len(temp_st) <= 1:
+            return
+        by_id: dict = {}
+        for tr in list(temp_st):
+            data = getattr(tr, "data", None)
+            item = getattr(getattr(data, "dtype", None), "itemsize", 8) or 8
+            if int(tr.stats.npts) * int(item) > _PRELOAD_MAX_TRACE_BYTES:
+                continue
+            by_id.setdefault(tr.id, []).append(tr)
+        kept = []
+        for traces in by_id.values():
+            traces = sorted(traces, key=lambda tr: (tr.stats.starttime, tr.stats.endtime))
+            clusters = [[traces[0]]]
+            for tr in traces[1:]:
+                gap = float(tr.stats.starttime - clusters[-1][-1].stats.endtime)
+                if gap > _PRELOAD_MAX_GAP_S:
+                    clusters.append([tr])
+                else:
+                    clusters[-1].append(tr)
+            cluster = max(clusters, key=lambda c: sum(int(tr.stats.npts) for tr in c))
+            kept.append(_preload_concat_cluster(cluster))
+        temp_st.traces = [tr for tr in kept if tr is not None and len(tr) > 0]
     except Exception:
-        try:
-            temp_st.merge(fill_value=0)
-        except Exception:
-            try:
-                temp_st.merge(method=0, fill_value=0)
-            except Exception:
-                pass
+        pass
 
 
 def _raise_single_combined_mseed_not_supported(path: str) -> None:

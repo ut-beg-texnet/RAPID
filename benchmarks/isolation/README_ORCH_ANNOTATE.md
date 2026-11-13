@@ -42,7 +42,7 @@ Do not sweep K = 1…N. Use a log-ish ladder on the pinned slot, then pick the *
 
 | Slot | Model-Actor K | Ripper K |
 |---|---|---|
-| CPU (cores 0–19) | 1, 2, 4, 5, 10, 20 | 1, 2, 4, 5 (reload is expensive) |
+| CPU (cores 0–19) | 1, 2, 4, 5, 10, 15, 20 | 1, 2, 4, 5 (reload is expensive) |
 | GPU (20 host cores + 1 GPU) | 1, 2, 4 | 1, 2 |
 
 VRAM will cap GPU K, especially EQCCT (two model branches).

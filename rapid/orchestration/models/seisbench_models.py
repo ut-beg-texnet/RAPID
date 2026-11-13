@@ -362,10 +362,60 @@ def _station_3c_from_merged_stream(args, st, station):
     return out
 
 
+# Filling a bad header gap (hours or days between segments) makes ObsPy
+# allocate the whole gap as zeros. Keep the largest cluster of segments
+# that sit within this gap. A continuous month at 100 Hz is about 1–2 GB,
+# which is valid BGS input; 512 MB was a Haynesville 4-hour cap and dropped
+# those month traces before picking.
+_MAX_MERGE_GAP_S = 300.0
+_MAX_TRACE_BYTES = 4 * 1024 * 1024 * 1024
+
+
+def _largest_close_cluster(traces, max_gap_s=_MAX_MERGE_GAP_S):
+    traces = sorted(traces, key=lambda tr: (tr.stats.starttime, tr.stats.endtime))
+    clusters = [[traces[0]]]
+    for tr in traces[1:]:
+        gap = float(tr.stats.starttime - clusters[-1][-1].stats.endtime)
+        if gap > max_gap_s:
+            clusters.append([tr])
+        else:
+            clusters[-1].append(tr)
+    return max(clusters, key=lambda cluster: sum(int(tr.stats.npts) for tr in cluster))
+
+
+def _trace_nbytes(tr) -> int:
+    data = getattr(tr, "data", None)
+    item = getattr(getattr(data, "dtype", None), "itemsize", 8) or 8
+    return int(tr.stats.npts) * int(item)
+
+
 def _merge_station_stream_copy(st, station):
     if st is None or len(st) == 0:
         raise ValueError(f"No traces for station {station} in shared Stream.")
-    st = obspy.Stream(traces=[tr.copy() for tr in st])
+    by_id = {}
+    for tr in st:
+        by_id.setdefault(tr.id, []).append(tr)
+    kept = []
+    dropped = 0
+    for traces in by_id.values():
+        usable = []
+        for tr in traces:
+            if _trace_nbytes(tr) > _MAX_TRACE_BYTES:
+                dropped += 1
+                continue
+            usable.append(tr)
+        if not usable:
+            continue
+        cluster = _largest_close_cluster(usable)
+        dropped += len(usable) - len(cluster)
+        kept.extend(tr.copy() for tr in cluster)
+    if dropped:
+        logging.getLogger("rapid").warning(
+            "Station %s: dropped %s trace segment(s) so merge will not allocate a multi-hour gap.",
+            station,
+            dropped,
+        )
+    st = obspy.Stream(traces=kept)
     try:
         st.merge(method=1, fill_value=0)
     except Exception:

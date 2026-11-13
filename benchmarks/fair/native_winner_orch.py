@@ -36,7 +36,7 @@ MODELS = (
 )
 CPU_NCPUS = (5, 10, 15, 20)
 GPU_NCPUS = (5, 10, 15, 20)
-K_CPU_MA = (1, 2, 4, 5, 10, 20)
+K_CPU_MA = (1, 2, 4, 5, 10, 15, 20)
 K_CPU_RP = (1, 2, 4, 5)
 K_GPU_MA = (1, 2, 4)
 K_GPU_RP = (1, 2)

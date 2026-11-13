@@ -26,6 +26,15 @@ from rapid.orchestration.support.tools import _parse_gpus_field
 from logging.handlers import QueueHandler, QueueListener
 
 
+def _ray_get_skip_failed(finished_task, logger):
+    """One bad window must not kill the rest of the shard."""
+    try:
+        return ray.get(finished_task)
+    except Exception as exc:
+        logger.error("timechunk task failed, skipping: %s", exc)
+        return None
+
+
 class RunEQCCTPro():  
     """RunEQCCTPro class for running the RunEQCCTPro functions for multiple instances of the class"""
     def __init__(self, # self is 'this instance' of the class 
@@ -520,15 +529,17 @@ class RunEQCCTPro():
                             tasks_queue, num_returns=1, timeout=None
                         )
                         for finished_task in tasks_finished:
-                            log_entry = ray.get(finished_task)
-                            log_queue.put(log_entry)  # Add log entry to the queue
+                            log_entry = _ray_get_skip_failed(finished_task, self.logger)
+                            if log_entry is not None:
+                                log_queue.put(log_entry)
 
         # After adding all the tasks to queue, process what's left
         while tasks_queue:
             tasks_finished, tasks_queue = ray.wait(tasks_queue, num_returns=1, timeout=None)
             for finished_task in tasks_finished:
-                log_entry = ray.get(finished_task)
-                self.logger.info(log_entry)
+                log_entry = _ray_get_skip_failed(finished_task, self.logger)
+                if log_entry is not None:
+                    self.logger.info(log_entry)
 
         # stop log forwarder
         try:
@@ -1635,15 +1646,17 @@ class EvaluateSystem():
                                     else: 
                                         tasks_finished, tasks_queue = ray.wait(tasks_queue, num_returns=1, timeout=None)
                                         for finished_task in tasks_finished:
-                                            log_entry = ray.get(finished_task)
-                                            log_queue.put(log_entry)  # Add log entry to the queue
+                                            log_entry = _ray_get_skip_failed(finished_task, self.logger)
+                                            if log_entry is not None:
+                                                log_queue.put(log_entry)
                                 
                                 # After adding all the tasks to queue, process what's left
                                 while tasks_queue:
                                     tasks_finished, tasks_queue = ray.wait(tasks_queue, num_returns=1, timeout=None)
                                     for finished_task in tasks_finished:
-                                        log_entry = ray.get(finished_task)
-                                        log_queue.put(log_entry)  # Add log entry to the queue
+                                        log_entry = _ray_get_skip_failed(finished_task, self.logger)
+                                        if log_entry is not None:
+                                            log_queue.put(log_entry)
 
                                 # ===== COMPREHENSIVE MEMORY TRACKING (AFTER) =====
                                 mem_sampler.stop()

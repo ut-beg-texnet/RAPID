@@ -770,5 +770,5 @@ def elbow_k(ks_ms: Dict[int, float], rel: float = nwo.ELBOW_REL) -> Optional[int
     return min(k for k, v in ks_ms.items() if v <= best * (1.0 + rel))
 
 
-K_TICKS_CPU = (1, 2, 4, 5, 10, 20)
+K_TICKS_CPU = (1, 2, 4, 5, 10, 15, 20)
 K_TICKS_GPU = (1, 2, 4)

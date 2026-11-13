@@ -72,8 +72,8 @@ def main() -> int:
     fig.tight_layout(rect=(0, 0.07, 1, 1))
     c.save(fig, STEM)
     c.write_csv(STEM, csv_rows)
-    # 580 st: MA cpu 6+6+6+... K<=C: C5:{1,2,4,5}=4, C10:5, C15:5, C20:6 = 20; ripper 4*4=16; gpu MA 3*4=12; ripper 2*4=8 -> 56 cells
-    c.report(STEM, n_pts, 56 * len(c.MODELS) * 5)
+    # 580 st MA cpu K<=C: C5:4, C10:5, C15:6, C20:7 = 22; ripper 4*4=16; gpu MA 3*4=12; ripper 2*4=8 -> 58 cells
+    c.report(STEM, n_pts, 58 * len(c.MODELS) * 5)
     return 0
 
 
